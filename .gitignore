@@ -50,3 +50,12 @@ yarn.lock
 dist/
 build/
 *.zip
+
+# Example workflow files (keep only skill files)
+samsung_portfolio_workflow*.json
+rss_to_x_auto_posting.json
+*_workflow*.json
+RSS_TO_X_SETUP_GUIDE.md
+FIX_EXPLANATION.md
+text.txt
+.mcp.json
