@@ -1,0 +1,52 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Credentials (security)
+*credentials*.json
+*secrets*.json
+*.key
+*.pem
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Generated files
+dist/
+build/
+*.zip

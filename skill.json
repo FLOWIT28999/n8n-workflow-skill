@@ -1,0 +1,27 @@
+{
+  "name": "n8n-workflow-creator",
+  "version": "1.0.0",
+  "description": "Comprehensive system for automatically creating fully functional n8n workflows from natural language requests through a structured 9-phase process. Use this skill when users request to create, design, build, or automate n8n workflows, integrations, or AI agent workflows. Leverages 4 MCP tools (Memory, Sequential Thinking, Tavily, n8n) for systematic workflow generation.",
+  "author": "FLOWIT28999",
+  "license": "MIT",
+  "type": "project",
+  "skillPath": ".claude/skills/n8n-workflow-creator/SKILL.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FLOWIT28999/n8n-workflow-skill.git"
+  },
+  "requiredMcpServers": [
+    "memory",
+    "sequential-thinking",
+    "tavily-mcp",
+    "n8n-mcp"
+  ],
+  "keywords": [
+    "n8n",
+    "workflow",
+    "automation",
+    "integration",
+    "ai-agent",
+    "workflow-builder"
+  ]
+}

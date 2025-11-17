@@ -1,0 +1,157 @@
+{
+  "name": "AI Agent with Tools",
+  "nodes": [
+    {
+      "id": "webhook_1",
+      "name": "Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "path": "ai-chat",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "agent_1",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [550, 300],
+      "parameters": {
+        "promptType": "define",
+        "text": "You are a helpful AI assistant. Answer the user's question using the available tools when needed.",
+        "hasOutputParser": false,
+        "options": {
+          "systemMessage": "You have access to tools that can help you answer questions. Use them when appropriate."
+        }
+      }
+    },
+    {
+      "id": "openai_1",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [550, 450],
+      "parameters": {
+        "model": "gpt-4",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1000
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "{{OPENAI_CREDENTIAL_ID}}",
+          "name": "OpenAI Account"
+        }
+      }
+    },
+    {
+      "id": "tool_calculator_1",
+      "name": "Calculator Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [350, 450],
+      "parameters": {
+        "name": "calculator",
+        "description": "Use this to perform mathematical calculations"
+      }
+    },
+    {
+      "id": "tool_http_1",
+      "name": "HTTP Request Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1,
+      "position": [350, 600],
+      "parameters": {
+        "name": "web_search",
+        "description": "Use this to fetch information from the web",
+        "method": "GET",
+        "url": "https://api.example.com/search?q={query}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "query",
+              "description": "The search query"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "format_1",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [850, 300],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field1",
+              "name": "response",
+              "type": "string",
+              "value": "={{$json.output}}"
+            },
+            {
+              "id": "field2",
+              "name": "timestamp",
+              "type": "string",
+              "value": "={{new Date().toISOString()}}"
+            },
+            {
+              "id": "field3",
+              "name": "model",
+              "type": "string",
+              "value": "gpt-4"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "response_1",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1150, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{{\n  \"answer\": $json.response,\n  \"timestamp\": $json.timestamp,\n  \"model\": $json.model\n}}}"
+      }
+    }
+  ],
+  "connections": {
+    "Chat Webhook": {
+      "main": [[{"node": "AI Agent", "type": "main", "index": 0}]]
+    },
+    "AI Agent": {
+      "main": [[{"node": "Format Response", "type": "main", "index": 0}]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{"node": "AI Agent", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Calculator Tool": {
+      "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
+    },
+    "HTTP Request Tool": {
+      "ai_tool": [[{"node": "AI Agent", "type": "ai_tool", "index": 0}]]
+    },
+    "Format Response": {
+      "main": [[{"node": "Send Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 120
+  },
+  "active": false,
+  "tags": ["ai", "agent", "openai", "langchain", "tools", "template"]
+}

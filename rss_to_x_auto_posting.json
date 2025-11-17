@@ -1,0 +1,64 @@
+{
+  "name": "RSS to X Auto Posting",
+  "nodes": [
+    {
+      "id": "rss_trigger_1",
+      "name": "RSS Feed Monitor",
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "feedUrl": "https://example.com/feed.xml"
+      }
+    },
+    {
+      "id": "code_1",
+      "name": "Format for X",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [550, 300],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// RSS 항목을 X 트윗 형식으로 변환 (280자 제한)\nconst title = $input.item.json.title || '';\nconst link = $input.item.json.link || '';\n\nlet tweet = title;\n\n// 링크 추가 (X의 t.co shortener를 위해 23자 예약)\nif (link) {\n  const maxTitleLength = 280 - 23 - 3; // 링크(23) + 공백(1) + '...'(3)\n  if (tweet.length > maxTitleLength) {\n    tweet = tweet.substring(0, maxTitleLength) + '...';\n  }\n  tweet += ' ' + link;\n} else if (tweet.length > 280) {\n  // 링크 없이 제목만 있을 경우\n  tweet = tweet.substring(0, 277) + '...';\n}\n\nreturn { text: tweet };"
+      }
+    },
+    {
+      "id": "twitter_1",
+      "name": "Post to X",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "parameters": {
+        "resource": "tweet",
+        "operation": "create",
+        "text": "={{$json.text}}"
+      },
+      "credentials": {
+        "twitterOAuth2Api": {
+          "id": "{{TWITTER_CREDENTIAL_ID}}",
+          "name": "X (Twitter) Account"
+        }
+      },
+      "continueOnFail": false,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    }
+  ],
+  "connections": {
+    "RSS Feed Monitor": {
+      "main": [[{"node": "Format for X", "type": "main", "index": 0}]]
+    },
+    "Format for X": {
+      "main": [[{"node": "Post to X", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "none"
+  },
+  "active": false,
+  "tags": ["rss", "twitter", "x", "automation", "social-media", "auto-posting"]
+}

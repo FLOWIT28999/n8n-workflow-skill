@@ -1,0 +1,464 @@
+{
+  "name": "AI 삼성전자 포트폴리오 매니저",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "매일 오전 7시 실행",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "# 삼성전자 주가 데이터 수집 (최근 90일)\nimport json\nfrom datetime import datetime, timedelta\n\n# Yahoo Finance 데이터 시뮬레이션\n# 실제 환경에서는 yfinance 라이브러리 사용:\n# import yfinance as yf\n# ticker = yf.Ticker(\"005930.KS\")\n# hist = ticker.history(period=\"3mo\")\n\n# 예시 데이터 구조 (실제로는 API에서 가져옴)\nstock_data = {\n    \"symbol\": \"005930.KS\",\n    \"name\": \"삼성전자\",\n    \"period\": \"90days\",\n    \"data\": [\n        # 실제로는 90일치 데이터\n        {\n            \"date\": (datetime.now() - timedelta(days=i)).strftime(\"%Y-%m-%d\"),\n            \"open\": 70000 + (i * 100),\n            \"high\": 72000 + (i * 100),\n            \"low\": 69000 + (i * 100),\n            \"close\": 71000 + (i * 100),\n            \"volume\": 10000000 + (i * 50000)\n        }\n        for i in range(90, 0, -1)\n    ]\n}\n\n# 주석: 실제 구현 시 아래 코드 사용\n# import yfinance as yf\n# ticker = yf.Ticker(\"005930.KS\")\n# end_date = datetime.now()\n# start_date = end_date - timedelta(days=90)\n# hist = ticker.history(start=start_date, end=end_date)\n# stock_data = hist.reset_index().to_dict('records')\n\nreturn {\"json\": stock_data}"
+      },
+      "id": "stock-data-collection",
+      "name": "주가 데이터 수집",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=삼성전자+주가&hl=ko&gl=KR&ceid=KR:ko"
+      },
+      "id": "news-rss-collection",
+      "name": "뉴스 데이터 수집",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://opendart.fss.or.kr/api/list.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "crtfc_key",
+              "value": "={{ $credentials.dartApi.apiKey }}"
+            },
+            {
+              "name": "corp_code",
+              "value": "00126380"
+            },
+            {
+              "name": "bgn_de",
+              "value": "={{ $today.minus({days: 30}).toFormat('yyyyMMdd') }}"
+            },
+            {
+              "name": "end_de",
+              "value": "={{ $today.toFormat('yyyyMMdd') }}"
+            },
+            {
+              "name": "page_count",
+              "value": "10"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "dart-disclosure-collection",
+      "name": "공시 데이터 수집",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "crtfc_key",
+              "value": "={{ $credentials.dartApi.apiKey }}"
+            },
+            {
+              "name": "corp_code",
+              "value": "00126380"
+            },
+            {
+              "name": "bsns_year",
+              "value": "2024"
+            },
+            {
+              "name": "reprt_code",
+              "value": "11014"
+            },
+            {
+              "name": "fs_div",
+              "value": "CFS"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "dart-financial-collection",
+      "name": "재무제표 수집",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 500]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge-data",
+      "name": "데이터 병합",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [680, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 수집된 모든 데이터를 구조화\nconst allItems = $input.all();\n\nlet stockData = null;\nlet newsData = [];\nlet disclosureData = [];\nlet financialData = null;\n\n// 각 노드에서 온 데이터 분류\nfor (const item of allItems) {\n  const json = item.json;\n  \n  // 주가 데이터 식별\n  if (json.symbol === '005930.KS') {\n    stockData = json;\n  }\n  \n  // 뉴스 데이터 식별 (RSS)\n  if (json.title && json.link && json.pubDate) {\n    newsData.push({\n      title: json.title,\n      link: json.link,\n      pubDate: json.pubDate,\n      description: json.description || json.content\n    });\n  }\n  \n  // 공시 데이터 식별\n  if (json.list && Array.isArray(json.list)) {\n    disclosureData = json.list.slice(0, 5); // 최근 5개만\n  }\n  \n  // 재무제표 식별\n  if (json.list && json.reprt_code) {\n    financialData = json.list;\n  }\n}\n\n// 통합 데이터 구조\nconst integratedData = {\n  timestamp: new Date().toISOString(),\n  symbol: '005930',\n  companyName: '삼성전자',\n  stockData: stockData,\n  newsData: newsData.slice(0, 10), // 최근 10개 뉴스\n  disclosureData: disclosureData,\n  financialData: financialData ? financialData.slice(0, 20) : null // 주요 재무 항목\n};\n\nreturn [{ json: integratedData }];"
+      },
+      "id": "data-preprocessing",
+      "name": "데이터 전처리",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 350]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 기술적 지표 계산 (RSI, 이동평균선, 볼린저 밴드)\nconst data = $input.first().json;\nconst stockPrices = data.stockData?.data || [];\n\n// RSI 계산 함수 (14일 기준)\nfunction calculateRSI(prices, period = 14) {\n  if (prices.length < period + 1) return null;\n  \n  let gains = 0;\n  let losses = 0;\n  \n  // 첫 번째 평균 계산\n  for (let i = 1; i <= period; i++) {\n    const change = prices[i].close - prices[i - 1].close;\n    if (change > 0) gains += change;\n    else losses += Math.abs(change);\n  }\n  \n  let avgGain = gains / period;\n  let avgLoss = losses / period;\n  \n  // 최근 RSI 계산\n  for (let i = period + 1; i < prices.length; i++) {\n    const change = prices[i].close - prices[i - 1].close;\n    if (change > 0) {\n      avgGain = (avgGain * (period - 1) + change) / period;\n      avgLoss = (avgLoss * (period - 1)) / period;\n    } else {\n      avgGain = (avgGain * (period - 1)) / period;\n      avgLoss = (avgLoss * (period - 1) + Math.abs(change)) / period;\n    }\n  }\n  \n  const rs = avgGain / avgLoss;\n  return 100 - (100 / (1 + rs));\n}\n\n// 이동평균선 계산 (5일, 20일, 60일)\nfunction calculateMA(prices, period) {\n  if (prices.length < period) return null;\n  const recentPrices = prices.slice(-period);\n  const sum = recentPrices.reduce((acc, p) => acc + p.close, 0);\n  return sum / period;\n}\n\n// 볼린저 밴드 계산 (20일, 2σ)\nfunction calculateBollingerBands(prices, period = 20, stdDev = 2) {\n  if (prices.length < period) return null;\n  \n  const recentPrices = prices.slice(-period);\n  const closes = recentPrices.map(p => p.close);\n  \n  // 중간 밴드 (MA)\n  const middle = closes.reduce((a, b) => a + b) / period;\n  \n  // 표준편차 계산\n  const variance = closes.reduce((sum, price) => sum + Math.pow(price - middle, 2), 0) / period;\n  const std = Math.sqrt(variance);\n  \n  return {\n    upper: middle + (std * stdDev),\n    middle: middle,\n    lower: middle - (std * stdDev)\n  };\n}\n\n// 거래량 분석\nfunction analyzeVolume(prices) {\n  if (prices.length < 20) return null;\n  \n  const recentVolumes = prices.slice(-20).map(p => p.volume);\n  const avgVolume = recentVolumes.reduce((a, b) => a + b) / 20;\n  const latestVolume = prices[prices.length - 1].volume;\n  \n  return {\n    average20d: avgVolume,\n    latest: latestVolume,\n    ratio: (latestVolume / avgVolume).toFixed(2),\n    trend: latestVolume > avgVolume * 1.5 ? '급등' : latestVolume < avgVolume * 0.5 ? '급감' : '보통'\n  };\n}\n\n// 지표 계산\nconst technicalIndicators = {\n  rsi: calculateRSI(stockPrices),\n  movingAverages: {\n    ma5: calculateMA(stockPrices, 5),\n    ma20: calculateMA(stockPrices, 20),\n    ma60: calculateMA(stockPrices, 60)\n  },\n  bollingerBands: calculateBollingerBands(stockPrices),\n  volume: analyzeVolume(stockPrices),\n  latestPrice: stockPrices[stockPrices.length - 1]?.close,\n  priceChange: {\n    day1: ((stockPrices[stockPrices.length - 1]?.close - stockPrices[stockPrices.length - 2]?.close) / stockPrices[stockPrices.length - 2]?.close * 100).toFixed(2),\n    day5: ((stockPrices[stockPrices.length - 1]?.close - stockPrices[stockPrices.length - 6]?.close) / stockPrices[stockPrices.length - 6]?.close * 100).toFixed(2),\n    day20: ((stockPrices[stockPrices.length - 1]?.close - stockPrices[stockPrices.length - 21]?.close) / stockPrices[stockPrices.length - 21]?.close * 100).toFixed(2)\n  }\n};\n\n// 매매 신호 생성 (단기 트레이딩용)\nlet tradingSignal = '보유';\nlet signalStrength = 0;\nconst reasons = [];\n\n// RSI 기반 신호\nif (technicalIndicators.rsi) {\n  if (technicalIndicators.rsi < 30) {\n    signalStrength += 2;\n    reasons.push('RSI 과매도 구간 (매수 신호)');\n  } else if (technicalIndicators.rsi > 70) {\n    signalStrength -= 2;\n    reasons.push('RSI 과매수 구간 (매도 신호)');\n  }\n}\n\n// 이동평균선 크로스\nif (technicalIndicators.movingAverages.ma5 > technicalIndicators.movingAverages.ma20) {\n  signalStrength += 1;\n  reasons.push('단기 이평선이 중기 이평선 상회 (골든크로스)');\n} else {\n  signalStrength -= 1;\n  reasons.push('단기 이평선이 중기 이평선 하회 (데드크로스)');\n}\n\n// 볼린저 밴드\nif (technicalIndicators.bollingerBands && technicalIndicators.latestPrice) {\n  if (technicalIndicators.latestPrice < technicalIndicators.bollingerBands.lower) {\n    signalStrength += 1;\n    reasons.push('볼린저 밴드 하단 돌파 (반등 가능성)');\n  } else if (technicalIndicators.latestPrice > technicalIndicators.bollingerBands.upper) {\n    signalStrength -= 1;\n    reasons.push('볼린저 밴드 상단 돌파 (조정 가능성)');\n  }\n}\n\n// 최종 신호 결정\nif (signalStrength >= 2) tradingSignal = '매수';\nelse if (signalStrength <= -2) tradingSignal = '매도';\n\nconst result = {\n  ...data,\n  technicalIndicators: technicalIndicators,\n  tradingSignal: {\n    signal: tradingSignal,\n    strength: signalStrength,\n    reasons: reasons,\n    confidence: Math.min(Math.abs(signalStrength) * 25, 100) + '%'\n  }\n};\n\nreturn [{ json: result }];"
+      },
+      "id": "technical-indicators",
+      "name": "기술적 지표 계산",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 350]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=다음 뉴스 데이터를 분석하여 감성을 판단해주세요.\n\n{{ $json.newsData }}\n\n각 뉴스에 대해 다음 형식으로 JSON 배열을 반환해주세요:\n[\n  {\n    \"title\": \"뉴스 제목\",\n    \"sentiment\": \"긍정/부정/중립\",\n    \"score\": 0-100,\n    \"summary\": \"한 줄 요약\",\n    \"impact\": \"주가에 미칠 영향 (상승/하락/중립)\"\n  }\n]\n\n삼성전자 주식 투자 관점에서 분석해주세요."
+      },
+      "id": "sentiment-analysis",
+      "name": "AI 감성 분석",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1280, 250],
+      "credentials": {
+        "googleGeminiOAuth2Api": {
+          "id": "google-gemini-oauth",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=당신은 주식 포트폴리오 매니저입니다. 다음 데이터를 종합적으로 분석하여 단기 트레이딩 전략을 제시해주세요.\n\n## 기본 정보\n- 종목: {{ $json.companyName }} ({{ $json.symbol }})\n- 분석 일시: {{ $json.timestamp }}\n\n## 주가 데이터\n- 현재가: {{ $json.technicalIndicators.latestPrice }}원\n- 1일 변동: {{ $json.technicalIndicators.priceChange.day1 }}%\n- 5일 변동: {{ $json.technicalIndicators.priceChange.day5 }}%\n- 20일 변동: {{ $json.technicalIndicators.priceChange.day20 }}%\n\n## 기술적 지표\n- RSI: {{ $json.technicalIndicators.rsi }}\n- 이동평균선: MA5 {{ $json.technicalIndicators.movingAverages.ma5 }}, MA20 {{ $json.technicalIndicators.movingAverages.ma20 }}, MA60 {{ $json.technicalIndicators.movingAverages.ma60 }}\n- 볼린저 밴드: 상단 {{ $json.technicalIndicators.bollingerBands.upper }}, 중간 {{ $json.technicalIndicators.bollingerBands.middle }}, 하단 {{ $json.technicalIndicators.bollingerBands.lower }}\n- 거래량: {{ $json.technicalIndicators.volume.trend }} (평균 대비 {{ $json.technicalIndicators.volume.ratio }}배)\n\n## 자동 매매 신호\n- 신호: {{ $json.tradingSignal.signal }}\n- 신뢰도: {{ $json.tradingSignal.confidence }}\n- 근거: {{ $json.tradingSignal.reasons }}\n\n## 뉴스 감성 분석\n{{ $json.newsData }}\n\n## 재무/공시 정보\n{{ $json.financialData }}\n{{ $json.disclosureData }}\n\n---\n\n다음 형식으로 마크다운 리포트를 작성해주세요:\n\n# 삼성전자 일일 포트폴리오 분석 리포트\n\n## 📊 Executive Summary\n- **추천 포지션**: [매수/매도/보유]\n- **목표가**: [가격]원\n- **손절가**: [가격]원\n- **투자 기간**: [1-3일/1주일]\n- **리스크 레벨**: [낮음/중간/높음]\n\n## 📈 기술적 분석\n[기술적 지표 종합 분석 및 해석]\n\n## 📰 뉴스 & 감성 분석\n[뉴스 요약 및 시장 심리 분석]\n\n## 💼 재무 & 공시 분석\n[최근 재무제표 및 공시사항 분석]\n\n## 🎯 트레이딩 전략\n### 매수 전략 (해당 시)\n- 진입 가격대:\n- 분할 매수 전략:\n- 주의사항:\n\n### 매도 전략 (해당 시)\n- 목표 수익률:\n- 손절 라인:\n- 청산 전략:\n\n## ⚠️ 리스크 분석\n[주요 리스크 요인 및 대응 방안]\n\n## 📝 결론\n[최종 종합 의견 및 액션 아이템]\n\n---\n\n*이 리포트는 AI가 자동 생성한 것으로, 투자 판단의 참고 자료로만 활용해주세요.*"
+      },
+      "id": "portfolio-analysis",
+      "name": "AI 포트폴리오 분석",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [1480, 350],
+      "credentials": {
+        "googleGeminiOAuth2Api": {
+          "id": "google-gemini-oauth",
+          "name": "Google Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// AI 분석 결과를 마크다운 파일로 포맷팅\nconst analysisResult = $input.first().json;\nconst today = new Date().toISOString().split('T')[0];\n\n// AI가 생성한 마크다운 리포트 추출\nlet markdownContent = '';\n\nif (typeof analysisResult === 'string') {\n  markdownContent = analysisResult;\n} else if (analysisResult.text) {\n  markdownContent = analysisResult.text;\n} else if (analysisResult.response) {\n  markdownContent = analysisResult.response;\n} else {\n  // 폴백: 기본 템플릿 사용\n  markdownContent = `# 삼성전자 일일 포트폴리오 분석 리포트\n\n**생성 일시**: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}\n\n## 분석 결과\n\nAI 분석이 완료되었습니다.\n\n${JSON.stringify(analysisResult, null, 2)}\n`;\n}\n\n// 파일명 생성\nconst fileName = `${today}_samsung_portfolio_report.md`;\n\nreturn [{\n  json: {\n    fileName: fileName,\n    content: markdownContent,\n    mimeType: 'text/markdown',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "markdown-generation",
+      "name": "마크다운 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 350]
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "upload",
+        "name": "={{ $json.fileName }}",
+        "resolveData": true,
+        "options": {
+          "mimeType": "text/markdown"
+        }
+      },
+      "id": "google-drive-upload",
+      "name": "Google Drive 저장",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [1880, 350],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "google-drive-oauth",
+          "name": "Google Drive OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "height": 320,
+        "width": 420,
+        "color": 5
+      },
+      "id": "sticky-note-trigger",
+      "name": "📌 스케줄 트리거 설정",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [160, 140],
+      "notes": "## ⏰ 스케줄 설정\n\n**실행 시간**: 매일 오전 7시 (KST)\n**Cron 표현식**: `0 7 * * *`\n**시간대**: Asia/Seoul\n\n### 설정 방법\n1. Schedule Trigger 노드 클릭\n2. Trigger Interval: Cron\n3. Expression: `0 7 * * *`\n4. Timezone: Asia/Seoul 선택\n\n### 주의사항\n- 한국 시장 개장 전(9시) 실행\n- 주말/공휴일에도 실행됨\n- 별도 휴일 필터 추가 가능"
+    },
+    {
+      "parameters": {
+        "height": 440,
+        "width": 480,
+        "color": 4
+      },
+      "id": "sticky-note-data-collection",
+      "name": "📌 데이터 수집 API 설정",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [380, 80],
+      "notes": "## 📡 데이터 수집 노드 설정\n\n### 1️⃣ 주가 데이터 (Code 노드)\n**방법**: Yahoo Finance API\n**티커**: 005930.KS (삼성전자)\n**기간**: 최근 90일\n**실제 구현 시**:\n```python\nimport yfinance as yf\nticker = yf.Ticker(\"005930.KS\")\nhist = ticker.history(period=\"3mo\")\n```\n\n### 2️⃣ 뉴스 데이터 (RSS Read)\n**URL**: https://news.google.com/rss/search?q=삼성전자+주가&hl=ko\n**최근**: 7일\n\n### 3️⃣ 공시 데이터 (HTTP Request)\n**API**: DART OpenAPI\n**엔드포인트**: https://opendart.fss.or.kr/api/list.json\n**필수 파라미터**:\n- crtfc_key: API 키 (신청 필요)\n- corp_code: 00126380 (삼성전자)\n- bgn_de/end_de: 날짜 범위\n\n### 4️⃣ 재무제표 (HTTP Request)\n**엔드포인트**: https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json\n**보고서**: 11014 (3분기보고서)\n**재무제표**: CFS (연결)"
+    },
+    {
+      "parameters": {
+        "height": 380,
+        "width": 400,
+        "color": 6
+      },
+      "id": "sticky-note-ai-analysis",
+      "name": "📌 Gemini AI 설정",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1220, 80],
+      "notes": "## 🤖 Gemini AI 분석 설정\n\n### API 키 발급\n1. https://makersuite.google.com 접속\n2. API Key 생성\n3. n8n Credentials 등록\n\n### 모델 설정\n**모델**: gemini-2.0-flash-exp\n**Temperature**: 0.7 (창의성 중간)\n**Max Tokens**: 2048\n\n### 프롬프트 구조\n\n#### 1단계: 감성 분석\n- 입력: 뉴스 데이터\n- 출력: JSON (sentiment, score, impact)\n\n#### 2단계: 포트폴리오 분석\n- 입력: 통합 데이터\n- 출력: 마크다운 리포트\n  - Executive Summary\n  - 기술적 분석\n  - 뉴스 분석\n  - 트레이딩 전략\n  - 리스크 분석\n\n### 비용 최적화\n- Flash 모델 사용 (무료 한도)\n- Context 길이 제한\n- 일 1회만 실행"
+    },
+    {
+      "parameters": {
+        "height": 360,
+        "width": 380,
+        "color": 3
+      },
+      "id": "sticky-note-technical-indicators",
+      "name": "📌 기술적 지표 계산",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1000, 80],
+      "notes": "## 📊 기술적 지표 설정\n\n### 단기 트레이딩 지표\n\n#### RSI (14일)\n- **과매도**: < 30 (매수 신호)\n- **과매수**: > 70 (매도 신호)\n- **중립**: 30-70\n\n#### 이동평균선\n- **MA5**: 5일 이평선 (단기)\n- **MA20**: 20일 이평선 (중기)\n- **MA60**: 60일 이평선 (장기)\n- **골든크로스**: MA5 > MA20 (매수)\n- **데드크로스**: MA5 < MA20 (매도)\n\n#### 볼린저 밴드 (20일, 2σ)\n- **상단 돌파**: 조정 가능성\n- **하단 돌파**: 반등 가능성\n- **중심선**: 20일 이평선\n\n#### 거래량\n- **20일 평균 대비**\n- **1.5배 이상**: 급등\n- **0.5배 이하**: 급감\n\n### 매매 신호 생성\n**강도**: -5 ~ +5\n- **+2 이상**: 매수\n- **-2 이하**: 매도\n- **그 외**: 보유"
+    },
+    {
+      "parameters": {
+        "height": 340,
+        "width": 360,
+        "color": 7
+      },
+      "id": "sticky-note-output",
+      "name": "📌 Google Drive 출력 설정",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1800, 80],
+      "notes": "## 💾 Google Drive 저장 설정\n\n### OAuth2 인증\n1. Google Cloud Console\n2. API 활성화: Google Drive API\n3. OAuth 2.0 클라이언트 ID 생성\n4. n8n Credentials 등록\n\n### 파일 설정\n**파일명 형식**: \n`YYYY-MM-DD_samsung_portfolio_report.md`\n\n**예시**: \n`2025-01-15_samsung_portfolio_report.md`\n\n**MIME 타입**: text/markdown\n\n### 저장 위치\n- **기본**: My Drive 루트\n- **권장**: 전용 폴더 생성\n  - 폴더명: \"Stock Reports\"\n  - 자동 정리 가능\n\n### 파일 관리\n- 매일 새 파일 생성\n- 히스토리 보관\n- 30일 이상 된 파일 자동 삭제 (선택)\n\n### 권한\n- drive.file (생성한 파일만)\n- 또는 drive (전체 접근)"
+    }
+  ],
+  "connections": {
+    "매일 오전 7시 실행": {
+      "main": [
+        [
+          {
+            "node": "주가 데이터 수집",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "뉴스 데이터 수집",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "공시 데이터 수집",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "재무제표 수집",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "주가 데이터 수집": {
+      "main": [
+        [
+          {
+            "node": "데이터 병합",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "뉴스 데이터 수집": {
+      "main": [
+        [
+          {
+            "node": "데이터 병합",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "공시 데이터 수집": {
+      "main": [
+        [
+          {
+            "node": "데이터 병합",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "재무제표 수집": {
+      "main": [
+        [
+          {
+            "node": "데이터 병합",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "데이터 병합": {
+      "main": [
+        [
+          {
+            "node": "데이터 전처리",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "데이터 전처리": {
+      "main": [
+        [
+          {
+            "node": "기술적 지표 계산",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "기술적 지표 계산": {
+      "main": [
+        [
+          {
+            "node": "AI 감성 분석",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI 포트폴리오 분석",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI 감성 분석": {
+      "main": [
+        [
+          {
+            "node": "AI 포트폴리오 분석",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AI 포트폴리오 분석": {
+      "main": [
+        [
+          {
+            "node": "마크다운 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "마크다운 생성": {
+      "main": [
+        [
+          {
+            "node": "Google Drive 저장",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "timezone": "Asia/Seoul",
+    "saveExecutionProgress": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-15T00:00:00.000Z",
+      "updatedAt": "2025-01-15T00:00:00.000Z",
+      "id": "1",
+      "name": "주식"
+    },
+    {
+      "createdAt": "2025-01-15T00:00:00.000Z",
+      "updatedAt": "2025-01-15T00:00:00.000Z",
+      "id": "2",
+      "name": "AI"
+    },
+    {
+      "createdAt": "2025-01-15T00:00:00.000Z",
+      "updatedAt": "2025-01-15T00:00:00.000Z",
+      "id": "3",
+      "name": "포트폴리오"
+    }
+  ],
+  "pinData": {},
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "self-hosted"
+  }
+}
